@@ -7,9 +7,6 @@
 	"name": "research-kg",
 	"main": ".open-next/worker.js",
 	"compatibility_date": "2025-03-01",
-	"limits": {
-		"cpu_ms": 300000, // 5 minutes
-	},
 	"compatibility_flags": [
 		"nodejs_compat",
 		"global_fetch_strictly_public"
