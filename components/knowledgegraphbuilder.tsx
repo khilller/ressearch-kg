@@ -78,6 +78,11 @@ export function KnowledgeGraphBuilder() {
     }
   }
 
+  const clearAllSelections = () => {
+    setSelectedEntities(new Set<string>())
+    setSelectedRelationships(new Set<string>())
+  }
+
   const handleGetSuggestions = async () => {
     if (!researchFocus.trim()) {
       setError('Please describe your research focus first')
@@ -290,11 +295,21 @@ export function KnowledgeGraphBuilder() {
 
             {/* Step 3: Entity and Relationship Configuration */}
             <div className="bg-white rounded-lg shadow-sm border p-6">
-              <div className="flex items-center space-x-2 mb-4">
-                <Zap className="w-5 h-5 text-gray-600" />
-                <h3 className="text-lg font-semibold text-gray-900">
-                  {aiSuggestedEntities.length > 0 ? 'Configure Entities & Relationships' : 'Manual Configuration'}
-                </h3>
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center space-x-2">
+                  <Zap className="w-5 h-5 text-gray-600" />
+                  <h3 className="text-lg font-semibold text-gray-900">
+                    {aiSuggestedEntities.length > 0 ? 'Configure Entities & Relationships' : 'Manual Configuration'}
+                  </h3>
+                </div>
+                {(selectedEntities.size > 0 || selectedRelationships.size > 0) && (
+                  <button
+                    onClick={clearAllSelections}
+                    className="px-3 py-1 bg-red-100 hover:bg-red-200 text-red-700 rounded text-sm transition-colors"
+                  >
+                    Clear All
+                  </button>
+                )}
               </div>
               
               {/* Show AI reasoning if available */}
@@ -346,7 +361,7 @@ export function KnowledgeGraphBuilder() {
                       value={customEntity}
                       onChange={(e) => setCustomEntity(e.target.value)}
                       placeholder="Add custom entity type"
-                      className="flex-1 px-3 py-1 border border-gray-300 rounded text-sm focus:ring-1 focus:ring-blue-500"
+                      className="flex-1 px-3 py-1 border border-gray-300 rounded text-gray-500 text-sm focus:ring-1 focus:ring-blue-500"
                       onKeyPress={(e) => e.key === 'Enter' && addCustomEntity()}
                     />
                     <button 
@@ -362,7 +377,7 @@ export function KnowledgeGraphBuilder() {
                       value={customRelationship}
                       onChange={(e) => setCustomRelationship(e.target.value)}
                       placeholder="Add custom relationship"
-                      className="flex-1 px-3 py-1 border border-gray-300 rounded text-sm focus:ring-1 focus:ring-green-500"
+                      className="flex-1 px-3 py-1 border border-gray-300 text-gray-500 rounded text-sm focus:ring-1 focus:ring-green-500"
                       onKeyPress={(e) => e.key === 'Enter' && addCustomRelationship()}
                     />
                     <button 
@@ -409,7 +424,7 @@ export function KnowledgeGraphBuilder() {
                         <Zap className="w-12 h-12 text-gray-400" />
                     </div>
                     <h4 className="text-lg font-medium text-gray-900 mb-2">Graph will appear here</h4>
-                    <p className="text-gray-600 max-w-sm">After processing, you&apos;ll see your knowledge graph with:</p>
+                    <p className="text-gray-600 max-w-sm">After processing, youll see your knowledge graph with:</p>
                     <ul className="text-sm text-gray-500 mt-2 space-y-1">
                         <li>• Extracted entities from your documents</li>
                         <li>• Relationships between concepts</li>

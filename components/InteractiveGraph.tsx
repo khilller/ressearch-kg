@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
+import { ZoomIn, ZoomOut, RotateCcw } from 'lucide-react';
 
 interface GraphNode {
   id: string;
@@ -48,16 +49,36 @@ const InteractiveGraph: React.FC<InteractiveGraphProps> = ({ data }) => {
   const [dragging, setDragging] = useState<string | null>(null);
   const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
   const [selectedNode, setSelectedNode] = useState<string | null>(null);
+  const [zoom, setZoom] = useState(1);
+  const [panOffset, setPanOffset] = useState({ x: 0, y: 0 });
+  const [isPanning, setIsPanning] = useState(false);
+  const [panStart, setPanStart] = useState({ x: 0, y: 0 });
   const svgRef = useRef<SVGSVGElement>(null);
 
   // Update nodes when data changes
   useEffect(() => {
     setNodes(initializeNodes());
     setSelectedNode(null);
+    setZoom(1);
+    setPanOffset({ x: 0, y: 0 });
   }, [data, initializeNodes]);
 
   // Simple colors: blue for entities, green for relationships
   const getNodeColor = () => '#3b82f6'; // bg-blue-500
+
+  // Zoom controls
+  const zoomIn = () => {
+    setZoom(prev => Math.min(prev * 1.2, 3)); // Max zoom 3x
+  };
+
+  const zoomOut = () => {
+    setZoom(prev => Math.max(prev / 1.2, 0.3)); // Min zoom 0.3x
+  };
+
+  const resetZoom = () => {
+    setZoom(1);
+    setPanOffset({ x: 0, y: 0 });
+  };
 
   // Mouse event handlers
   const handleMouseDown = (e: React.MouseEvent, node: PositionedNode) => {
@@ -68,16 +89,20 @@ const InteractiveGraph: React.FC<InteractiveGraphProps> = ({ data }) => {
     const rect = svgRef.current.getBoundingClientRect();
     setDragging(node.id);
     setDragOffset({
-      x: e.clientX - rect.left - node.x,
-      y: e.clientY - rect.top - node.y
+      x: (e.clientX - rect.left) / zoom - panOffset.x - node.x,
+      y: (e.clientY - rect.top) / zoom - panOffset.y - node.y
     });
   };
 
   const handleMouseMove = (e: React.MouseEvent) => {
-    if (dragging && svgRef.current) {
-      const rect = svgRef.current.getBoundingClientRect();
-      const newX = e.clientX - rect.left - dragOffset.x;
-      const newY = e.clientY - rect.top - dragOffset.y;
+    if (!svgRef.current) return;
+    
+    const rect = svgRef.current.getBoundingClientRect();
+    
+    if (dragging) {
+      // Dragging a node
+      const newX = (e.clientX - rect.left) / zoom - panOffset.x - dragOffset.x;
+      const newY = (e.clientY - rect.top) / zoom - panOffset.y - dragOffset.y;
 
       setNodes(prevNodes =>
         prevNodes.map(node =>
@@ -90,11 +115,32 @@ const InteractiveGraph: React.FC<InteractiveGraphProps> = ({ data }) => {
             : node
         )
       );
+    } else if (isPanning) {
+      // Panning the background
+      const deltaX = e.clientX - panStart.x;
+      const deltaY = e.clientY - panStart.y;
+      
+      setPanOffset(prev => ({
+        x: prev.x + deltaX / zoom,
+        y: prev.y + deltaY / zoom
+      }));
+      
+      setPanStart({ x: e.clientX, y: e.clientY });
     }
   };
 
   const handleMouseUp = () => {
     setDragging(null);
+    setIsPanning(false);
+  };
+
+  const handleBackgroundMouseDown = (e: React.MouseEvent) => {
+    if (e.target === svgRef.current || (e.target as Element).tagName === 'rect') {
+      //const rect = svgRef.current!.getBoundingClientRect();
+      setIsPanning(true);
+      setPanStart({ x: e.clientX, y: e.clientY });
+      e.preventDefault();
+    }
   };
 
   const handleNodeClick = (e: React.MouseEvent, nodeId: string) => {
@@ -141,8 +187,6 @@ const InteractiveGraph: React.FC<InteractiveGraphProps> = ({ data }) => {
     };
   };
 
-
-
   return (
     <div className="w-full h-full">
       {/* Success message with relationship details */}
@@ -176,6 +220,32 @@ const InteractiveGraph: React.FC<InteractiveGraphProps> = ({ data }) => {
           >
             Clear Selection
           </button>
+          <div className="flex items-center space-x-1 border-l pl-2 ml-2">
+            <button
+              onClick={zoomIn}
+              className="p-1 bg-gray-200 hover:bg-gray-300 text-gray-700 rounded transition-colors"
+              title="Zoom In"
+            >
+              <ZoomIn className="w-4 h-4" />
+            </button>
+            <button
+              onClick={zoomOut}
+              className="p-1 bg-gray-200 hover:bg-gray-300 text-gray-700 rounded transition-colors"
+              title="Zoom Out"
+            >
+              <ZoomOut className="w-4 h-4" />
+            </button>
+            <button
+              onClick={resetZoom}
+              className="p-1 bg-gray-200 hover:bg-gray-300 text-gray-700 rounded transition-colors"
+              title="Reset Zoom"
+            >
+              <RotateCcw className="w-4 h-4" />
+            </button>
+            <span className="text-xs text-gray-500 ml-2">
+              {Math.round(zoom * 100)}%
+            </span>
+          </div>
         </div>
       </div>
 
@@ -184,10 +254,11 @@ const InteractiveGraph: React.FC<InteractiveGraphProps> = ({ data }) => {
         ref={svgRef}
         width="100%"
         height="400"
-        className="cursor-move border-l border-r border-b rounded-b-lg"
+        className={`border-l border-r border-b rounded-b-lg ${isPanning ? 'cursor-grabbing' : 'cursor-grab'}`}
         onMouseMove={handleMouseMove}
         onMouseUp={handleMouseUp}
         onMouseLeave={handleMouseUp}
+        onMouseDown={handleBackgroundMouseDown}
         onClick={handleBackgroundClick}
         style={{ backgroundColor: '#fafafa' }}
       >
@@ -199,118 +270,122 @@ const InteractiveGraph: React.FC<InteractiveGraphProps> = ({ data }) => {
         </defs>
         <rect width="100%" height="100%" fill="url(#grid)" />
 
-        {/* Relationships */}
-        {data.relationships.map((rel, index) => {
-          const isHighlighted = isRelationshipHighlighted(rel);
-          const midpoint = getRelationshipMidpoint(rel.source, rel.target);
-          
-          return (
-            <g key={index}>
-              <path
-                d={getConnectionPath(rel.source, rel.target)}
-                stroke={isHighlighted ? "#f59e0b" : "#22c55e"}
-                strokeWidth={isHighlighted ? "3" : "2"}
-                fill="none"
-                opacity={selectedNode && !isHighlighted ? 0.3 : 0.8}
-                className="pointer-events-none"
-              />
-              {/* Relationship label */}
-              {isHighlighted && (
-                <g>
-                  <rect
-                    x={midpoint.x - rel.type.length * 3}
-                    y={midpoint.y - 8}
-                    width={rel.type.length * 6}
-                    height="16"
-                    fill="white"
-                    stroke="#d1d5db"
-                    rx="4"
+        {/* Zoomable content group */}
+        <g transform={`scale(${zoom}) translate(${panOffset.x}, ${panOffset.y})`}>
+          {/* Relationships */}
+          {data.relationships.map((rel, index) => {
+            const isHighlighted = isRelationshipHighlighted(rel);
+            const midpoint = getRelationshipMidpoint(rel.source, rel.target);
+            
+            return (
+              <g key={index}>
+                <path
+                  d={getConnectionPath(rel.source, rel.target)}
+                  stroke={isHighlighted ? "#f59e0b" : "#22c55e"}
+                  strokeWidth={isHighlighted ? "3" : "2"}
+                  fill="none"
+                  opacity={selectedNode && !isHighlighted ? 0.3 : 0.8}
+                  className="pointer-events-none"
+                />
+                {/* Relationship label */}
+                {isHighlighted && (
+                  <g>
+                    <rect
+                      x={midpoint.x - rel.type.length * 3}
+                      y={midpoint.y - 8}
+                      width={rel.type.length * 6}
+                      height="16"
+                      fill="white"
+                      stroke="#d1d5db"
+                      rx="4"
+                      className="pointer-events-none"
+                    />
+                    <text
+                      x={midpoint.x}
+                      y={midpoint.y + 4}
+                      textAnchor="middle"
+                      className="text-xs fill-gray-700 pointer-events-none font-medium"
+                    >
+                      {rel.type}
+                    </text>
+                  </g>
+                )}
+              </g>
+            );
+          })}
+
+          {/* Nodes */}
+          {nodes.map((node) => {
+            const isSelected = selectedNode === node.id;
+            const isConnected = isNodeConnected(node.id);
+            const nodeOpacity = selectedNode && !isSelected && !isConnected ? 0.3 : 1;
+            
+            return (
+              <g
+                key={node.id}
+                className="cursor-pointer select-none"
+                onMouseDown={(e) => handleMouseDown(e, node)}
+                onClick={(e) => handleNodeClick(e, node.id)}
+                style={{ opacity: nodeOpacity }}
+              >
+                {/* Node glow effect when selected */}
+                {isSelected && (
+                  <circle
+                    cx={node.x}
+                    cy={node.y}
+                    r="35"
+                    fill={getNodeColor()}
+                    opacity="0.3"
                     className="pointer-events-none"
                   />
-                  <text
-                    x={midpoint.x}
-                    y={midpoint.y + 4}
-                    textAnchor="middle"
-                    className="text-xs fill-gray-700 pointer-events-none font-medium"
-                  >
-                    {rel.type}
-                  </text>
-                </g>
-              )}
-            </g>
-          );
-        })}
-
-        {/* Nodes */}
-        {nodes.map((node) => {
-          const isSelected = selectedNode === node.id;
-          const isConnected = isNodeConnected(node.id);
-          const nodeOpacity = selectedNode && !isSelected && !isConnected ? 0.3 : 1;
-          
-          return (
-            <g
-              key={node.id}
-              className="cursor-pointer select-none"
-              onMouseDown={(e) => handleMouseDown(e, node)}
-              onClick={(e) => handleNodeClick(e, node.id)}
-              style={{ opacity: nodeOpacity }}
-            >
-              {/* Node glow effect when selected */}
-              {isSelected && (
+                )}
+                
+                {/* Main node circle */}
                 <circle
                   cx={node.x}
                   cy={node.y}
-                  r="35"
+                  r={isSelected ? "28" : "24"}
                   fill={getNodeColor()}
-                  opacity="0.3"
-                  className="pointer-events-none"
+                  stroke={isSelected ? "#374151" : "#6b7280"}
+                  strokeWidth={isSelected ? "3" : "2"}
+                  className="transition-all duration-200 hover:stroke-gray-900"
                 />
-              )}
-              
-              {/* Main node circle */}
-              <circle
-                cx={node.x}
-                cy={node.y}
-                r={isSelected ? "28" : "24"}
-                fill={getNodeColor()}
-                stroke={isSelected ? "#374151" : "#6b7280"}
-                strokeWidth={isSelected ? "3" : "2"}
-                className="transition-all duration-200 hover:stroke-gray-900"
-              />
-              
-              {/* Node label */}
-              <text
-                x={node.x}
-                y={node.y + 40}
-                textAnchor="middle"
-                className="text-sm fill-gray-900 font-medium pointer-events-none"
-                style={{ fontSize: '12px' }}
-              >
-                {node.id.length > 15 ? `${node.id.substring(0, 12)}...` : node.id}
-              </text>
-              
-              {/* Node type */}
-              <text
-                x={node.x}
-                y={node.y + 55}
-                textAnchor="middle"
-                className="text-xs fill-gray-500 pointer-events-none"
-                style={{ fontSize: '10px' }}
-              >
-                ({node.type})
-              </text>
-            </g>
-          );
-        })}
+                
+                {/* Node label */}
+                <text
+                  x={node.x}
+                  y={node.y + 40}
+                  textAnchor="middle"
+                  className="text-sm fill-gray-900 font-medium pointer-events-none"
+                  style={{ fontSize: '12px' }}
+                >
+                  {node.id.length > 15 ? `${node.id.substring(0, 12)}...` : node.id}
+                </text>
+                
+                {/* Node type */}
+                <text
+                  x={node.x}
+                  y={node.y + 55}
+                  textAnchor="middle"
+                  className="text-xs fill-gray-500 pointer-events-none"
+                  style={{ fontSize: '10px' }}
+                >
+                  ({node.type})
+                </text>
+              </g>
+            );
+          })}
+        </g>
       </svg>
 
       {/* Instructions and Debug Info */}
       <div className="mt-3 space-y-3">
         <div className="text-xs text-gray-500 bg-gray-50 p-3 rounded-lg">
-          <div className="grid grid-cols-3 gap-4 mb-3">
-            <div>• <strong>Drag</strong> any node to reposition it</div>
-            <div>• <strong>Click</strong> a node to highlight its relationships</div>
-            <div>• <strong>Click background</strong> to clear selection</div>
+          <div className="grid grid-cols-2 gap-4 mb-3">
+            <div>• <strong>Drag nodes</strong> to reposition them</div>
+            <div>• <strong>Drag background</strong> to pan around when zoomed</div>
+            <div>• <strong>Click nodes</strong> to highlight relationships</div>
+            <div>• <strong>Use zoom controls</strong> for better visibility</div>
           </div>
         </div>
         
