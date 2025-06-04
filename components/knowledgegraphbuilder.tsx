@@ -4,6 +4,7 @@ import React, { useState } from 'react'
 import { Upload, X, Zap, FileText, Settings, Play } from 'lucide-react'
 import { getSuggestionsAction, processDocumentsAction } from '@/lib/actions/actions'
 import type { KnowledgeGraphSuggestionsType, GraphData } from '@/lib/types/types'
+import InteractiveGraph from './InteractiveGraph'
 
 export function KnowledgeGraphBuilder() {
   // File and configuration state
@@ -78,11 +79,6 @@ export function KnowledgeGraphBuilder() {
   }
 
   const handleGetSuggestions = async () => {
-    if (uploadedFiles.length === 0) {
-      setError('Please upload at least one document first')
-      return
-    }
-
     if (!researchFocus.trim()) {
       setError('Please describe your research focus first')
       return
@@ -92,10 +88,8 @@ export function KnowledgeGraphBuilder() {
     setError(null)
 
     try {
-      const formData = new FormData()
-      uploadedFiles.forEach(file => formData.append('files', file))
-
-      const suggestions = await getSuggestionsAction(researchFocus, formData)
+      // Only pass the research focus, no need for files
+      const suggestions = await getSuggestionsAction(researchFocus, new FormData())
       
       // Set AI suggestions (don't auto-select them)
       setAiSuggestedEntities(suggestions.entities)
@@ -274,7 +268,7 @@ export function KnowledgeGraphBuilder() {
                   <textarea 
                     value={researchFocus}
                     onChange={(e) => setResearchFocus(e.target.value)}
-                    className="w-full h-24 p-3 border border-gray-300 rounded-lg resize-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    className="w-full h-24 p-3 border border-gray-300 text-gray-900 rounded-lg resize-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                     placeholder="E.g., 'I'm analyzing biotech patent relationships and company acquisitions to understand collaboration networks in drug development'"
                   />
                 </div>
@@ -406,55 +400,24 @@ export function KnowledgeGraphBuilder() {
               {/* Graph Content */}
               {graphData ? (
                 <div className="p-4">
-                  <div className="bg-green-50 border border-green-200 rounded-lg p-4 mb-4">
-                    <h4 className="font-medium text-green-800 mb-2">Processing Complete!</h4>
-                    <p className="text-green-700 text-sm">
-                      Found {graphData.nodes.length} entities and {graphData.relationships.length} relationships
-                    </p>
-                  </div>
-                  
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <h5 className="font-medium text-gray-900 mb-2">Entities ({graphData.nodes.length})</h5>
-                      <div className="max-h-64 overflow-y-auto space-y-1">
-                        {graphData.nodes.map((node, index) => (
-                          <div key={index} className="text-sm p-2 bg-gray-50 rounded">
-                            <span className="font-medium">{node.id}</span>
-                            <span className="text-gray-500 ml-2">({node.type})</span>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                    
-                    <div>
-                      <h5 className="font-medium text-gray-900 mb-2">Relationships ({graphData.relationships.length})</h5>
-                      <div className="max-h-64 overflow-y-auto space-y-1">
-                        {graphData.relationships.map((rel, index) => (
-                          <div key={index} className="text-sm p-2 bg-gray-50 rounded">
-                            <div className="font-medium">{rel.source} → {rel.target}</div>
-                            <div className="text-gray-500 text-xs">{rel.type}</div>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  </div>
+                    <InteractiveGraph data={graphData} />
                 </div>
-              ) : (
+                ) : (
                 <div className="h-96 flex items-center justify-center bg-gray-50 m-4 rounded-lg border-2 border-dashed border-gray-300">
-                  <div className="text-center">
+                    <div className="text-center">
                     <div className="w-24 h-24 mx-auto mb-4 bg-gray-200 rounded-full flex items-center justify-center">
-                      <Zap className="w-12 h-12 text-gray-400" />
+                        <Zap className="w-12 h-12 text-gray-400" />
                     </div>
                     <h4 className="text-lg font-medium text-gray-900 mb-2">Graph will appear here</h4>
                     <p className="text-gray-600 max-w-sm">After processing, you'll see your knowledge graph with:</p>
                     <ul className="text-sm text-gray-500 mt-2 space-y-1">
-                      <li>• Extracted entities from your documents</li>
-                      <li>• Relationships between concepts</li>
-                      <li>• Interactive exploration capabilities</li>
+                        <li>• Extracted entities from your documents</li>
+                        <li>• Relationships between concepts</li>
+                        <li>• Interactive exploration capabilities</li>
                     </ul>
-                  </div>
+                    </div>
                 </div>
-              )}
+                )}
 
               {/* Graph Controls */}
               <div className="p-4 border-t bg-gray-50">

@@ -7,19 +7,27 @@ const openai = new OpenAI({
 })
 
 export async function getAISuggestions(
-  researchFocus: string,
-  documentPreview: string
+  researchFocus: string
 ): Promise<KnowledgeGraphSuggestionsType> {
   const response = await openai.chat.completions.parse({
     model: "gpt-4o-2024-08-06",
     messages: [
       {
         role: "system",
-        content: "Based on the research focus and document samples, suggest relevant entity types and relationship types for knowledge graph extraction. Focus on the most important and frequently occurring concepts."
+        content: `You are an expert in knowledge graph design. Based on a user's research focus description, suggest relevant entity types and relationship types that would be most useful for extracting a knowledge graph.
+
+        Guidelines:
+        - Suggest 3-8 entity types that are specific to the research domain
+        - Suggest 4-10 relationship types that commonly occur in that domain
+        - Focus on entities and relationships that would frequently appear in documents
+        - Make suggestions actionable and specific to the research area
+        - Consider both direct relationships and indirect connections`
       },
       {
         role: "user",
-        content: `Research Focus: ${researchFocus}\n\nDocument Sample: ${documentPreview.slice(0, 2000)}`
+        content: `Research Focus: ${researchFocus}
+
+Based on this research focus, what entity types and relationship types would be most valuable for building a knowledge graph?`
       }
     ],
     response_format: zodResponseFormat(KnowledgeGraphSuggestions, "suggestions")

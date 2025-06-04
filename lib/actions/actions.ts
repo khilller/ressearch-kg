@@ -1,4 +1,3 @@
-// src/app/actions.ts
 'use server'
 
 import { getAISuggestions } from '@/lib/actions/ai-sugesstions'
@@ -11,16 +10,8 @@ export async function getSuggestionsAction(
   files: FormData
 ): Promise<KnowledgeGraphSuggestionsType> {
   try {
-    // Extract preview text from first file
-    const firstFile = files.get('files') as File
-    let documentPreview = ''
-    
-    if (firstFile) {
-      const buffer = Buffer.from(await firstFile.arrayBuffer())
-      documentPreview = await extractTextFromPDF(buffer)
-    }
-
-    const suggestions = await getAISuggestions(researchFocus, documentPreview)
+    // Only use the research focus prompt, not the document content
+    const suggestions = await getAISuggestions(researchFocus)
     return suggestions
   } catch (error) {
     console.error('Error getting AI suggestions:', error)
