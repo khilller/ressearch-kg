@@ -10,7 +10,7 @@ export async function getAISuggestions(
   researchFocus: string
 ): Promise<KnowledgeGraphSuggestionsType> {
   const response = await openai.chat.completions.parse({
-    model: "gpt-4o-2024-08-06",
+    model: "gpt-4.1-2025-04-14",
     messages: [
       {
         role: "system",

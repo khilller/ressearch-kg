@@ -18,13 +18,16 @@ export async function processDocumentsToGraph(
     llm: model,
     allowedNodes: allowedEntities.map(e => e.toUpperCase()),
     allowedRelationships: allowedRelationships,
-    strictMode: false
+    strictMode: true
   })
 
   // Convert document texts to LangChain Documents
   const documents = documentTexts.map(text => 
     new Document({ pageContent: text })
   )
+
+  console.log("Processing documents to graph...")
+  console.log("Number of documents:", documents)
 
   const results = await llmGraphTransformer.convertToGraphDocuments(documents)
   

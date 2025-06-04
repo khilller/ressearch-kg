@@ -8,7 +8,9 @@ export async function extractTextFromPDF(buffer: Buffer): Promise<string> {
   try {
     // Convert Buffer to Blob for PDFLoader
     const blob = new Blob([buffer], { type: 'application/pdf' })
-    const data = new PDFLoader(blob)
+    const data = new PDFLoader(blob, {
+        parsedItemSeparator: ""
+    })
     const documents = await data.load()
     return documents.map(doc => doc.pageContent).join('\n') || ''
   } catch (error) {

@@ -145,12 +145,16 @@ const InteractiveGraph: React.FC<InteractiveGraphProps> = ({ data }) => {
 
   return (
     <div className="w-full h-full">
-      {/* Success message */}
+      {/* Success message with relationship details */}
       <div className="bg-green-50 border border-green-200 rounded-lg p-4 mb-4">
         <h4 className="font-medium text-green-800 mb-2">Processing Complete!</h4>
         <p className="text-green-700 text-sm">
           Found {data.nodes.length} entities and {data.relationships.length} relationships
         </p>
+        {/* Show all relationship types found */}
+        <div className="mt-2 text-xs text-green-600">
+          <strong>Relationship types found:</strong> {[...new Set(data.relationships.map(rel => rel.type))].join(', ')}
+        </div>
       </div>
 
       {/* Graph Controls */}
@@ -300,13 +304,31 @@ const InteractiveGraph: React.FC<InteractiveGraphProps> = ({ data }) => {
         })}
       </svg>
 
-      {/* Instructions */}
-      <div className="mt-3 text-xs text-gray-500 bg-gray-50 p-3 rounded-lg">
-        <div className="grid grid-cols-3 gap-4">
-          <div>• <strong>Drag</strong> any node to reposition it</div>
-          <div>• <strong>Click</strong> a node to highlight its relationships</div>
-          <div>• <strong>Click background</strong> to clear selection</div>
+      {/* Instructions and Debug Info */}
+      <div className="mt-3 space-y-3">
+        <div className="text-xs text-gray-500 bg-gray-50 p-3 rounded-lg">
+          <div className="grid grid-cols-3 gap-4 mb-3">
+            <div>• <strong>Drag</strong> any node to reposition it</div>
+            <div>• <strong>Click</strong> a node to highlight its relationships</div>
+            <div>• <strong>Click background</strong> to clear selection</div>
+          </div>
         </div>
+        
+        {/* Debug: Show all relationships */}
+        <details className="bg-gray-50 rounded-lg">
+          <summary className="p-3 cursor-pointer text-sm font-medium text-gray-700 hover:bg-gray-100 rounded-lg">
+            🔍 Debug: View All Extracted Relationships ({data.relationships.length})
+          </summary>
+          <div className="p-3 pt-0 space-y-1 max-h-40 overflow-y-auto">
+            {data.relationships.map((rel, index) => (
+              <div key={index} className="text-xs p-2 bg-white rounded border">
+                <strong>{rel.source}</strong> 
+                <span className="mx-2 text-green-600 font-medium">—{rel.type}→</span> 
+                <strong>{rel.target}</strong>
+              </div>
+            ))}
+          </div>
+        </details>
       </div>
     </div>
   );
