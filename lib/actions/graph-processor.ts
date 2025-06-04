@@ -34,14 +34,14 @@ export async function processDocumentsToGraph(
 
   // Convert to our format
   const nodes = allNodes.map(node => ({
-    id: node.id,
+    id: String(node.id),
     type: node.type,
     properties: node.properties || {}
   }))
 
   const relationships = allRelationships.map(rel => ({
-    source: rel.source.id,
-    target: rel.target.id,
+    source: String(rel.source.id),
+    target: String(rel.target.id),
     type: rel.type,
     properties: rel.properties || {}
   }))
