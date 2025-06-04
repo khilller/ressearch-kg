@@ -7,7 +7,8 @@ import type { KnowledgeGraphSuggestionsType, ProcessingResult } from '@/lib/type
 
 export async function getSuggestionsAction(
   researchFocus: string,
-  files: FormData
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  _files: FormData
 ): Promise<KnowledgeGraphSuggestionsType> {
   try {
     // Only use the research focus prompt, not the document content

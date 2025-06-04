@@ -11,14 +11,14 @@ export type KnowledgeGraphSuggestionsType = z.infer<typeof KnowledgeGraphSuggest
 export interface GraphNode {
   id: string
   type: string
-  properties: Record<string, any>
+  properties: Record<string, unknown>
 }
 
 export interface GraphRelationship {
   source: string
   target: string
   type: string
-  properties: Record<string, any>
+  properties: Record<string, unknown>
 }
 
 export interface GraphData {

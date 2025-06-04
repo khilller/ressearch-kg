@@ -49,5 +49,12 @@ export async function processDocumentsToGraph(
     properties: rel.properties || {}
   }))
 
+  console.log("nodes")
+
+  console.log(nodes)
+
+    console.log("relationships")
+  console.log(relationships)
+
   return { nodes, relationships }
 }

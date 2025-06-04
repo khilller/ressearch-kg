@@ -3,7 +3,7 @@
 import React, { useState } from 'react'
 import { Upload, X, Zap, FileText, Settings, Play } from 'lucide-react'
 import { getSuggestionsAction, processDocumentsAction } from '@/lib/actions/actions'
-import type { KnowledgeGraphSuggestionsType, GraphData } from '@/lib/types/types'
+import type { GraphData } from '@/lib/types/types'
 import InteractiveGraph from './InteractiveGraph'
 
 export function KnowledgeGraphBuilder() {
@@ -409,7 +409,7 @@ export function KnowledgeGraphBuilder() {
                         <Zap className="w-12 h-12 text-gray-400" />
                     </div>
                     <h4 className="text-lg font-medium text-gray-900 mb-2">Graph will appear here</h4>
-                    <p className="text-gray-600 max-w-sm">After processing, you'll see your knowledge graph with:</p>
+                    <p className="text-gray-600 max-w-sm">After processing, you&apos;ll see your knowledge graph with:</p>
                     <ul className="text-sm text-gray-500 mt-2 space-y-1">
                         <li>• Extracted entities from your documents</li>
                         <li>• Relationships between concepts</li>

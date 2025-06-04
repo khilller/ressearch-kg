@@ -1,16 +1,16 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 
 interface GraphNode {
   id: string;
   type: string;
-  properties: Record<string, any>;
+  properties: Record<string, unknown>;
 }
 
 interface GraphRelationship {
   source: string;
   target: string;
   type: string;
-  properties: Record<string, any>;
+  properties: Record<string, unknown>;
 }
 
 interface GraphData {
@@ -29,7 +29,7 @@ interface InteractiveGraphProps {
 
 const InteractiveGraph: React.FC<InteractiveGraphProps> = ({ data }) => {
   // Initialize positioned nodes
-  const initializeNodes = (): PositionedNode[] => {
+  const initializeNodes = useCallback((): PositionedNode[] => {
     const centerX = 400;
     const centerY = 200;
     const radius = 150;
@@ -42,7 +42,7 @@ const InteractiveGraph: React.FC<InteractiveGraphProps> = ({ data }) => {
         y: centerY + Math.sin(angle) * radius
       };
     });
-  };
+  }, [data.nodes]);
 
   const [nodes, setNodes] = useState<PositionedNode[]>(initializeNodes);
   const [dragging, setDragging] = useState<string | null>(null);
@@ -54,7 +54,7 @@ const InteractiveGraph: React.FC<InteractiveGraphProps> = ({ data }) => {
   useEffect(() => {
     setNodes(initializeNodes());
     setSelectedNode(null);
-  }, [data]);
+  }, [data, initializeNodes]);
 
   // Simple colors: blue for entities, green for relationships
   const getNodeColor = () => '#3b82f6'; // bg-blue-500
