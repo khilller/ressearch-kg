@@ -18,7 +18,7 @@ export async function processDocumentsToGraph(
     llm: model,
     allowedNodes: allowedEntities.map(e => e.toUpperCase()),
     allowedRelationships: allowedRelationships,
-    strictMode: true
+    strictMode: false,
   })
 
   // Convert document texts to LangChain Documents
