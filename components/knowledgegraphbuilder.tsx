@@ -2,8 +2,8 @@
 
 import React, { useState } from 'react'
 import { Upload, X, Zap, FileText, Settings, Play } from 'lucide-react'
-import { getSuggestionsAction, processDocumentsAction } from '@/lib/actions/actions'
-import type { GraphData } from '@/lib/types/types'
+import { getSuggestionsAction } from '@/lib/actions/actions'
+import type { GraphData, ProcessingProgress } from '@/lib/types/types'
 import InteractiveGraph from './InteractiveGraph'
 
 export function KnowledgeGraphBuilder() {
@@ -25,6 +25,7 @@ export function KnowledgeGraphBuilder() {
   // Loading and processing state
   const [isLoadingSuggestions, setIsLoadingSuggestions] = useState(false)
   const [isProcessing, setIsProcessing] = useState(false)
+  const [processingProgress, setProcessingProgress] = useState<ProcessingProgress | null>(null)
   const [graphData, setGraphData] = useState<GraphData | null>(null)
   const [error, setError] = useState<string | null>(null)
 
@@ -121,24 +122,66 @@ export function KnowledgeGraphBuilder() {
 
     setIsProcessing(true)
     setError(null)
+    setProcessingProgress(null)
+    setGraphData(null)
 
     try {
       const formData = new FormData()
       uploadedFiles.forEach(file => formData.append('files', file))
 
-      const result = await processDocumentsAction(
-        formData,
-        Array.from(selectedEntities),
-        Array.from(selectedRelationships)
-      )
+      // Use streaming version for large files
+      const response = await fetch('/api/process-documents-stream', {
+        method: 'POST',
+        body: formData,
+        headers: {
+          'X-Selected-Entities': JSON.stringify(Array.from(selectedEntities)),
+          'X-Selected-Relationships': JSON.stringify(Array.from(selectedRelationships))
+        }
+      })
 
-      if (result.success && result.data) {
-        setGraphData(result.data)
-      } else {
-        setError(result.error || 'Processing failed')
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`)
       }
+
+      const reader = response.body?.getReader()
+      if (!reader) {
+        throw new Error('No response body')
+      }
+
+      const decoder = new TextDecoder()
+      let buffer = ''
+
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+
+        buffer += decoder.decode(value, { stream: true })
+        
+        // Process complete messages
+        const lines = buffer.split('\n')
+        buffer = lines.pop() || '' // Keep incomplete line in buffer
+
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            try {
+              const data: ProcessingProgress = JSON.parse(line.slice(6))
+              setProcessingProgress(data)
+
+              if (data.status === 'complete' && data.data) {
+                setGraphData(data.data)
+              } else if (data.status === 'error') {
+                setError(data.error || 'Processing failed')
+              }
+            } catch {
+              console.warn('Failed to parse SSE data:', line)
+            }
+          }
+        }
+      }
+
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Processing failed')
+      setProcessingProgress(null)
     } finally {
       setIsProcessing(false)
     }
@@ -216,6 +259,49 @@ export function KnowledgeGraphBuilder() {
           </div>
         )}
 
+        {/* Processing Progress Display */}
+        {isProcessing && processingProgress && (
+          <div className="mb-6 bg-blue-50 border border-blue-200 rounded-lg p-4">
+            <div className="flex items-center justify-between mb-2">
+              <h4 className="font-medium text-blue-800">Processing Documents</h4>
+              <span className="text-sm text-blue-600">{processingProgress.progress}%</span>
+            </div>
+            
+            {/* Progress Bar */}
+            <div className="w-full bg-blue-200 rounded-full h-2 mb-3">
+              <div 
+                className="bg-blue-600 h-2 rounded-full transition-all duration-300 ease-out"
+                style={{ width: `${processingProgress.progress}%` }}
+              ></div>
+            </div>
+            
+            {/* Progress Message */}
+            <p className="text-blue-700 text-sm mb-2">{processingProgress.message}</p>
+            
+            {/* File Progress */}
+            {processingProgress.currentFile && (
+              <div className="text-xs text-blue-600">
+                Processing: {processingProgress.currentFile} 
+                {processingProgress.fileIndex && processingProgress.totalFiles && 
+                  ` (${processingProgress.fileIndex}/${processingProgress.totalFiles})`
+                }
+              </div>
+            )}
+            
+            {/* Processing Details */}
+            {processingProgress.details && (
+              <div className="mt-2 text-xs text-blue-600">
+                {processingProgress.details.entities && (
+                  <span>Entities found: {processingProgress.details.entities} • </span>
+                )}
+                {processingProgress.details.relationships && (
+                  <span>Relationships: {processingProgress.details.relationships}</span>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+
         {/* Main Content */}
         <div className="grid grid-cols-12 gap-6">
           {/* Left Sidebar - Configuration */}
@@ -232,10 +318,12 @@ export function KnowledgeGraphBuilder() {
                     <div className="flex items-center space-x-2">
                       <div className="w-2 h-2 bg-green-500 rounded-full"></div>
                       <span className="text-sm text-gray-700">{file.name}</span>
+                      <span className="text-xs text-gray-500">({(file.size / 1024 / 1024).toFixed(1)}MB)</span>
                     </div>
                     <button 
                       onClick={() => removeFile(index)}
                       className="text-red-500 hover:text-red-700"
+                      disabled={isProcessing}
                     >
                       <X className="w-4 h-4" />
                     </button>
@@ -250,13 +338,21 @@ export function KnowledgeGraphBuilder() {
                   accept=".pdf"
                   onChange={handleFileUpload}
                   className="hidden"
+                  disabled={isProcessing}
                 />
                 <label
                   htmlFor="file-upload"
-                  className="block p-4 border-2 border-dashed border-gray-300 rounded-lg text-center hover:border-blue-400 hover:bg-blue-50 transition-colors cursor-pointer"
+                  className={`block p-4 border-2 border-dashed border-gray-300 rounded-lg text-center transition-colors cursor-pointer ${
+                    isProcessing 
+                      ? 'opacity-50 cursor-not-allowed' 
+                      : 'hover:border-blue-400 hover:bg-blue-50'
+                  }`}
                 >
                   <Upload className="w-6 h-6 text-gray-400 mx-auto mb-2" />
-                  <p className="text-sm text-gray-500">Drop PDF files here or <span className="text-blue-600 hover:underline">browse</span></p>
+                  <p className="text-sm text-gray-500">
+                    {isProcessing ? 'Processing...' : 'Drop PDF files here or '}
+                    {!isProcessing && <span className="text-blue-600 hover:underline">browse</span>}
+                  </p>
                 </label>
               </div>
             </div>
@@ -275,17 +371,18 @@ export function KnowledgeGraphBuilder() {
                     onChange={(e) => setResearchFocus(e.target.value)}
                     className="w-full h-24 p-3 border border-gray-300 text-gray-900 rounded-lg resize-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                     placeholder="E.g., 'I'm analyzing biotech patent relationships and company acquisitions to understand collaboration networks in drug development'"
+                    disabled={isProcessing}
                   />
                 </div>
                 <button 
                   onClick={handleGetSuggestions}
-                  disabled={isLoadingSuggestions || uploadedFiles.length === 0 || !researchFocus.trim()}
+                  disabled={isLoadingSuggestions || uploadedFiles.length === 0 || !researchFocus.trim() || isProcessing}
                   className="w-full bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white px-4 py-2 rounded-lg font-medium transition-colors flex items-center justify-center space-x-2"
                 >
                   <Zap className="w-4 h-4" />
                   <span>{isLoadingSuggestions ? 'Getting Suggestions...' : 'Get AI Suggestions'}</span>
                 </button>
-                {aiSuggestedEntities.length === 0 && (
+                {aiSuggestedEntities.length === 0 && !isProcessing && (
                   <p className="text-xs text-gray-500">
                     💡 Tip: You can also add your own entities and relationships manually below
                   </p>
@@ -302,7 +399,7 @@ export function KnowledgeGraphBuilder() {
                     {aiSuggestedEntities.length > 0 ? 'Configure Entities & Relationships' : 'Manual Configuration'}
                   </h3>
                 </div>
-                {(selectedEntities.size > 0 || selectedRelationships.size > 0) && (
+                {(selectedEntities.size > 0 || selectedRelationships.size > 0) && !isProcessing && (
                   <button
                     onClick={clearAllSelections}
                     className="px-3 py-1 bg-red-100 hover:bg-red-200 text-red-700 rounded text-sm transition-colors"
@@ -330,7 +427,7 @@ export function KnowledgeGraphBuilder() {
                         key={entity}
                         item={entity}
                         isSelected={selectedEntities.has(entity)}
-                        onToggle={toggleEntity}
+                        onToggle={isProcessing ? () => {} : toggleEntity}
                         type="entity"
                         isAiSuggested={aiSuggestedEntities.includes(entity) && !selectedEntities.has(entity)}
                       />
@@ -346,7 +443,7 @@ export function KnowledgeGraphBuilder() {
                         key={relationship}
                         item={relationship}
                         isSelected={selectedRelationships.has(relationship)}
-                        onToggle={toggleRelationship}
+                        onToggle={isProcessing ? () => {} : toggleRelationship}
                         type="relationship"
                         isAiSuggested={aiSuggestedRelationships.includes(relationship) && !selectedRelationships.has(relationship)}
                       />
@@ -362,11 +459,13 @@ export function KnowledgeGraphBuilder() {
                       onChange={(e) => setCustomEntity(e.target.value)}
                       placeholder="Add custom entity type"
                       className="flex-1 px-3 py-1 border border-gray-300 rounded text-gray-500 text-sm focus:ring-1 focus:ring-blue-500"
-                      onKeyPress={(e) => e.key === 'Enter' && addCustomEntity()}
+                      onKeyPress={(e) => e.key === 'Enter' && !isProcessing && addCustomEntity()}
+                      disabled={isProcessing}
                     />
                     <button 
                       onClick={addCustomEntity}
-                      className="px-3 py-1 bg-blue-600 text-white rounded text-sm hover:bg-blue-700"
+                      className="px-3 py-1 bg-blue-600 text-white rounded text-sm hover:bg-blue-700 disabled:bg-blue-400"
+                      disabled={isProcessing}
                     >
                       Add
                     </button>
@@ -378,11 +477,13 @@ export function KnowledgeGraphBuilder() {
                       onChange={(e) => setCustomRelationship(e.target.value)}
                       placeholder="Add custom relationship"
                       className="flex-1 px-3 py-1 border border-gray-300 text-gray-500 rounded text-sm focus:ring-1 focus:ring-green-500"
-                      onKeyPress={(e) => e.key === 'Enter' && addCustomRelationship()}
+                      onKeyPress={(e) => e.key === 'Enter' && !isProcessing && addCustomRelationship()}
+                      disabled={isProcessing}
                     />
                     <button 
                       onClick={addCustomRelationship}
-                      className="px-3 py-1 bg-green-600 text-white rounded text-sm hover:bg-green-700"
+                      className="px-3 py-1 bg-green-600 text-white rounded text-sm hover:bg-green-700 disabled:bg-green-400"
+                      disabled={isProcessing}
                     >
                       Add
                     </button>
@@ -398,7 +499,12 @@ export function KnowledgeGraphBuilder() {
               className="w-full bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700 disabled:from-purple-400 disabled:to-blue-400 text-white px-6 py-3 rounded-lg font-medium transition-all shadow-lg flex items-center justify-center space-x-2"
             >
               <Play className="w-5 h-5" />
-              <span>{isProcessing ? 'Processing Documents...' : 'Process Documents & Build Graph'}</span>
+              <span>
+                {isProcessing 
+                  ? `Processing... ${processingProgress?.progress || 0}%`
+                  : 'Process Documents & Build Graph'
+                }
+              </span>
             </button>
           </div>
 
@@ -424,7 +530,7 @@ export function KnowledgeGraphBuilder() {
                         <Zap className="w-12 h-12 text-gray-400" />
                     </div>
                     <h4 className="text-lg font-medium text-gray-900 mb-2">Graph will appear here</h4>
-                    <p className="text-gray-600 max-w-sm">After processing, youll see your knowledge graph with:</p>
+                    <p className="text-gray-600 max-w-sm">After processing, you&apos;ll see your knowledge graph with:</p>
                     <ul className="text-sm text-gray-500 mt-2 space-y-1">
                         <li>• Extracted entities from your documents</li>
                         <li>• Relationships between concepts</li>
@@ -502,6 +608,125 @@ export function KnowledgeGraphBuilder() {
             </div>
           )}
         </div>
+
+        {/* Debug Information - Show extracted data */}
+        {graphData && (
+          <div className="mt-6 space-y-4">
+            {/* Debug: Show all extracted nodes */}
+            <details className="bg-white rounded-lg shadow-sm border">
+              <summary className="p-4 cursor-pointer text-sm font-medium text-gray-700 hover:bg-gray-50 rounded-lg">
+                🔍 Debug: View All Extracted Entities ({graphData.nodes.length})
+              </summary>
+              <div className="p-4 pt-0 space-y-2 max-h-60 overflow-y-auto">
+                {graphData.nodes.map((node, index) => (
+                  <div key={index} className="text-xs p-3 bg-gray-50 rounded border">
+                    <div className="flex items-center justify-between mb-1">
+                      <strong className="text-blue-700">{node.id}</strong>
+                      <span className="px-2 py-1 bg-blue-100 text-blue-800 rounded text-xs font-medium">
+                        {node.type}
+                      </span>
+                    </div>
+                    {(() => {
+                      const description = node.properties.description;
+                      return typeof description === 'string' && description ? (
+                        <div className="text-gray-600 text-xs">
+                          {description}
+                        </div>
+                      ) : null;
+                    })()}
+                  </div>
+                ))}
+              </div>
+            </details>
+
+            {/* Debug: Show all extracted relationships */}
+            <details className="bg-white rounded-lg shadow-sm border">
+              <summary className="p-4 cursor-pointer text-sm font-medium text-gray-700 hover:bg-gray-50 rounded-lg">
+                🔗 Debug: View All Extracted Relationships ({graphData.relationships.length})
+              </summary>
+              <div className="p-4 pt-0 space-y-2 max-h-60 overflow-y-auto">
+                {graphData.relationships.map((rel, index) => (
+                  <div key={index} className="text-xs p-3 bg-gray-50 rounded border">
+                    <div className="flex items-center justify-between mb-1">
+                      <div className="flex items-center space-x-2">
+                        <strong className="text-gray-800">{rel.source}</strong>
+                        <span className="px-2 py-1 bg-green-100 text-green-800 rounded text-xs font-medium">
+                          {rel.type}
+                        </span>
+                        <strong className="text-gray-800">{rel.target}</strong>
+                      </div>
+                    </div>
+                    {(() => {
+                      const description = rel.properties.description;
+                      return description ? (
+                        <div className="text-gray-600 text-xs">
+                          {String(description)}
+                        </div>
+                      ) : null;
+                    })()}
+                  </div>
+                ))}
+              </div>
+            </details>
+
+            {/* Debug: Show graph statistics */}
+            <div className="bg-white rounded-lg shadow-sm border p-4">
+              <h4 className="font-medium text-gray-900 mb-3">📊 Graph Statistics</h4>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+                <div className="text-center p-3 bg-blue-50 rounded">
+                  <div className="text-2xl font-bold text-blue-600">{graphData.nodes.length}</div>
+                  <div className="text-blue-700">Total Entities</div>
+                </div>
+                <div className="text-center p-3 bg-green-50 rounded">
+                  <div className="text-2xl font-bold text-green-600">{graphData.relationships.length}</div>
+                  <div className="text-green-700">Total Relationships</div>
+                </div>
+                <div className="text-center p-3 bg-purple-50 rounded">
+                  <div className="text-2xl font-bold text-purple-600">
+                    {[...new Set(graphData.nodes.map(n => n.type))].length}
+                  </div>
+                  <div className="text-purple-700">Entity Types</div>
+                </div>
+                <div className="text-center p-3 bg-amber-50 rounded">
+                  <div className="text-2xl font-bold text-amber-600">
+                    {[...new Set(graphData.relationships.map(r => r.type))].length}
+                  </div>
+                  <div className="text-amber-700">Relationship Types</div>
+                </div>
+              </div>
+              
+              {/* Entity types breakdown */}
+              <div className="mt-4 pt-4 border-t">
+                <h5 className="font-medium text-gray-800 mb-2">Entity Types Found:</h5>
+                <div className="flex flex-wrap gap-2">
+                  {[...new Set(graphData.nodes.map(n => n.type))].map(type => {
+                    const count = graphData.nodes.filter(n => n.type === type).length
+                    return (
+                      <span key={type} className="px-2 py-1 bg-blue-100 text-blue-800 rounded text-xs">
+                        {type} ({count})
+                      </span>
+                    )
+                  })}
+                </div>
+              </div>
+
+              {/* Relationship types breakdown */}
+              <div className="mt-3">
+                <h5 className="font-medium text-gray-800 mb-2">Relationship Types Found:</h5>
+                <div className="flex flex-wrap gap-2">
+                  {[...new Set(graphData.relationships.map(r => r.type))].map(type => {
+                    const count = graphData.relationships.filter(r => r.type === type).length
+                    return (
+                      <span key={type} className="px-2 py-1 bg-green-100 text-green-800 rounded text-xs">
+                        {type} ({count})
+                      </span>
+                    )
+                  })}
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   )

@@ -31,3 +31,24 @@ export interface ProcessingResult {
   data?: GraphData
   error?: string
 }
+
+export interface ProcessingDetails {
+  entities?: number
+  relationships?: number
+  document?: number
+  chunk?: number
+  totalChunks?: number
+  totalDocuments?: number
+}
+
+export interface ProcessingProgress {
+  status: string
+  progress: number
+  message: string
+  data?: GraphData
+  error?: string
+  details?: ProcessingDetails
+  currentFile?: string
+  fileIndex?: number
+  totalFiles?: number
+}

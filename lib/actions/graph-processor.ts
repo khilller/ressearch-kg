@@ -1,7 +1,7 @@
 import OpenAI from "openai"
 import { zodResponseFormat } from "openai/helpers/zod"
 import { z } from "zod"
-import type { GraphData, GraphNode, GraphRelationship } from "@/lib/types/types"
+import type { GraphData, GraphNode, GraphRelationship, ProcessingDetails } from "@/lib/types/types"
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY
@@ -32,8 +32,8 @@ const EntityMerging = z.object({
   reasoning: z.string().describe("Brief explanation of the merging decisions")
 })
 
-// Chunk text into smaller pieces (10k characters)
-function chunkText(text: string, maxChars: number = 10000): string[] {
+// Chunk text into smaller pieces (8k characters for faster processing)
+function chunkText(text: string, maxChars: number = 8000): string[] {
   // Split by sentences to preserve context
   const sentences = text.split(/[.!?]+/)
   const chunks: string[] = []
@@ -118,8 +118,13 @@ async function extractFromChunk(
 }
 
 // Use LLM to merge similar entities across batches
-async function mergeEntitiesWithLLM(allNodes: GraphNode[]): Promise<Map<string, string>> {
+async function mergeEntitiesWithLLM(
+  allNodes: GraphNode[],
+  progressCallback?: (progress: number, message: string) => void
+): Promise<Map<string, string>> {
   if (allNodes.length <= 1) return new Map()
+
+  progressCallback?.(0, "Grouping entities by type...")
 
   // Group entities by type for more targeted merging
   const entitiesByType = new Map<string, string[]>()
@@ -132,10 +137,17 @@ async function mergeEntitiesWithLLM(allNodes: GraphNode[]): Promise<Map<string, 
   }
 
   const entityMapping = new Map<string, string>()
+  const entityTypes = Array.from(entitiesByType.keys())
   
   // Process each entity type separately
-  for (const [type, entities] of entitiesByType) {
+  for (let typeIndex = 0; typeIndex < entityTypes.length; typeIndex++) {
+    const type = entityTypes[typeIndex]
+    const entities = entitiesByType.get(type)!
     const uniqueEntities = [...new Set(entities)]
+    
+    const progress = (typeIndex / entityTypes.length) * 100
+    progressCallback?.(progress, `Merging ${type} entities (${uniqueEntities.length} found)...`)
+    
     if (uniqueEntities.length <= 1) continue
 
     try {
@@ -177,11 +189,16 @@ async function mergeEntitiesWithLLM(allNodes: GraphNode[]): Promise<Map<string, 
           }
         }
       }
+      
+      // Small delay to prevent timeout detection
+      await new Promise(resolve => setTimeout(resolve, 50))
+      
     } catch (error) {
       console.warn(`Failed to merge entities for type ${type}:`, error)
     }
   }
 
+  progressCallback?.(100, "Entity merging complete")
   return entityMapping
 }
 
@@ -235,11 +252,13 @@ function consolidateGraph(
   }
 }
 
-// Main function that processes documents to graph using direct OpenAI calls
+// Main function with progress callbacks and document nodes
 export async function processDocumentsToGraph(
   documentTexts: string[],
   allowedEntities: string[],
-  allowedRelationships: string[]
+  allowedRelationships: string[],
+  documentNames?: string[],
+  progressCallback?: (progress: number, message: string, details?: ProcessingDetails) => void
 ): Promise<GraphData> {
   console.log("Processing documents with direct OpenAI calls...")
   console.log(`Documents: ${documentTexts.length}`)
@@ -249,18 +268,55 @@ export async function processDocumentsToGraph(
   const allNodes: GraphNode[] = []
   const allRelationships: GraphRelationship[] = []
   
+  // Create document nodes as the main nodes
+  const documentNodes: GraphNode[] = documentTexts.map((text, index) => ({
+    id: documentNames?.[index] || `Document ${index + 1}`,
+    type: "DOCUMENT",
+    properties: { 
+      description: `Source document with ${text.length} characters`,
+      length: text.length 
+    }
+  }))
+  
+  allNodes.push(...documentNodes)
+  progressCallback?.(0, "Created document nodes")
+  
+  // Calculate total chunks for progress tracking
+  const allChunks = documentTexts.map(text => chunkText(text, 8000))
+  const totalChunks = allChunks.reduce((sum, chunks) => sum + chunks.length, 0)
+  let processedChunks = 0
+  
   // Process each document
   for (let docIndex = 0; docIndex < documentTexts.length; docIndex++) {
     const text = documentTexts[docIndex]
+    const documentId = documentNames?.[docIndex] || `Document ${docIndex + 1}`
     console.log(`\nProcessing document ${docIndex + 1}/${documentTexts.length} (${text.length} chars)`)
     
-    // Chunk the document into 10k character pieces
-    const chunks = chunkText(text, 10000)
+    // Chunk the document into 8k character pieces
+    const chunks = allChunks[docIndex]
     console.log(`Split into ${chunks.length} chunks`)
+    
+    progressCallback?.(
+      (processedChunks / totalChunks) * 70, 
+      `Processing ${documentId} (${chunks.length} chunks)`,
+      { document: docIndex + 1, totalDocuments: documentTexts.length }
+    )
     
     // Process each chunk with OpenAI
     for (let chunkIndex = 0; chunkIndex < chunks.length; chunkIndex++) {
       console.log(`  Processing chunk ${chunkIndex + 1}/${chunks.length}`)
+      
+      progressCallback?.(
+        (processedChunks / totalChunks) * 70,
+        `Processing ${documentId} - chunk ${chunkIndex + 1}/${chunks.length}`,
+        { 
+          document: docIndex + 1, 
+          chunk: chunkIndex + 1, 
+          totalChunks: chunks.length,
+          entities: allNodes.length,
+          relationships: allRelationships.length
+        }
+      )
       
       try {
         const { nodes, relationships } = await extractFromChunk(
@@ -272,27 +328,55 @@ export async function processDocumentsToGraph(
         allNodes.push(...nodes)
         allRelationships.push(...relationships)
         
+        // Add relationships from document to extracted entities
+        for (const node of nodes) {
+          allRelationships.push({
+            source: documentId,
+            target: node.id,
+            type: "CONTAINS",
+            properties: { description: `Document contains this ${node.type.toLowerCase()}` }
+          })
+        }
+        
         console.log(`    Found ${nodes.length} entities, ${relationships.length} relationships`)
+        
+        // Small delay to prevent timeout detection every 3 chunks
+        if (chunkIndex % 3 === 0) {
+          await new Promise(resolve => setTimeout(resolve, 100))
+        }
+        
       } catch (error) {
         console.error(`    Error processing chunk ${chunkIndex + 1}:`, error)
       }
+      
+      processedChunks++
     }
   }
   
   console.log(`\nTotal extracted: ${allNodes.length} entities, ${allRelationships.length} relationships`)
+  progressCallback?.(70, `Extracted ${allNodes.length} entities from all documents`)
   
-  // Skip merging if no entities found
-  if (allNodes.length === 0) {
-    console.log("No entities found")
-    return { nodes: [], relationships: [] }
+  // Skip merging if no entities found (except document nodes)
+  if (allNodes.length <= documentNodes.length) {
+    console.log("No entities found besides document nodes")
+    progressCallback?.(100, "Processing complete - no entities found")
+    return { nodes: documentNodes, relationships: [] }
   }
   
-  // Merge duplicate entities using LLM
+  // Merge duplicate entities using LLM (exclude document nodes)
   console.log("\nMerging duplicate entities...")
+  progressCallback?.(75, "Starting entity merging process...")
+  
+  const nonDocumentNodes = allNodes.filter(node => node.type !== "DOCUMENT")
   let entityMapping: Map<string, string>
   
   try {
-    entityMapping = await mergeEntitiesWithLLM(allNodes)
+    entityMapping = await mergeEntitiesWithLLM(
+      nonDocumentNodes,
+      (progress, message) => {
+        progressCallback?.(75 + (progress * 0.15), message) // 15% for merging
+      }
+    )
     console.log(`Merged ${entityMapping.size} duplicate entities`)
   } catch (error) {
     console.warn("Entity merging failed:", error)
@@ -300,9 +384,11 @@ export async function processDocumentsToGraph(
   }
   
   // Consolidate the final graph
+  progressCallback?.(90, "Consolidating final graph...")
   const finalGraph = consolidateGraph(allNodes, allRelationships, entityMapping)
   
   console.log(`\nFinal graph: ${finalGraph.nodes.length} entities, ${finalGraph.relationships.length} relationships`)
+  progressCallback?.(100, `Processing complete! Found ${finalGraph.nodes.length} entities and ${finalGraph.relationships.length} relationships`)
   
   return finalGraph
 }

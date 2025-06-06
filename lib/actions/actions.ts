@@ -3,7 +3,7 @@
 import { getAISuggestions } from '@/lib/actions/ai-sugesstions'
 import { processDocumentsToGraph } from '@/lib/actions/graph-processor'
 import { extractTextFromPDF } from '@/lib/actions/pdf-extractor'
-import type { KnowledgeGraphSuggestionsType, ProcessingResult } from '@/lib/types/types'
+import type { KnowledgeGraphSuggestionsType, ProcessingResult, ProcessingDetails } from '@/lib/types/types'
 
 export async function getSuggestionsAction(
   researchFocus: string,
@@ -32,20 +32,28 @@ export async function processDocumentsAction(
       throw new Error('No files provided')
     }
 
-    // Extract text from all PDFs
+    // Extract text from all PDFs with progress tracking
     const documentTexts: string[] = []
+    const documentNames: string[] = []
     
-    for (const file of fileEntries) {
+    for (let i = 0; i < fileEntries.length; i++) {
+      const file = fileEntries[i]
+      console.log(`Extracting text from ${file.name} (${i + 1}/${fileEntries.length})`)
+      
       const buffer = Buffer.from(await file.arrayBuffer())
       const text = await extractTextFromPDF(buffer)
       documentTexts.push(text)
+      documentNames.push(file.name.replace('.pdf', ''))
+      
+      console.log(`Extracted ${text.length} characters from ${file.name}`)
     }
 
-    // Process with LangChain
+    // Process documents with enhanced feedback
     const graphData = await processDocumentsToGraph(
       documentTexts,
       selectedEntities,
-      selectedRelationships
+      selectedRelationships,
+      documentNames
     )
 
     return {
@@ -59,4 +67,110 @@ export async function processDocumentsAction(
       error: error instanceof Error ? error.message : 'Unknown error occurred'
     }
   }
+}
+
+// NEW: Streaming version with progress updates
+export async function processDocumentsStreamAction(
+  files: FormData,
+  selectedEntities: string[],
+  selectedRelationships: string[]
+) {
+  const encoder = new TextEncoder()
+  
+  return new Response(
+    new ReadableStream({
+      async start(controller) {
+        try {
+          const fileEntries = files.getAll('files') as File[]
+          
+          if (fileEntries.length === 0) {
+            controller.enqueue(encoder.encode('data: {"status": "error", "error": "No files provided"}\n\n'))
+            controller.close()
+            return
+          }
+
+          // Send initial status
+          controller.enqueue(encoder.encode('data: {"status": "starting", "progress": 0, "message": "Initializing processing..."}\n\n'))
+
+          // Extract text from all PDFs with progress updates
+          const documentTexts: string[] = []
+          const documentNames: string[] = []
+          
+          for (let i = 0; i < fileEntries.length; i++) {
+            const file = fileEntries[i]
+            const progress = Math.round((i / fileEntries.length) * 30) // 30% for PDF extraction
+            
+            controller.enqueue(encoder.encode(`data: {"status": "extracting", "progress": ${progress}, "message": "Extracting text from ${file.name}...", "currentFile": "${file.name}", "fileIndex": ${i + 1}, "totalFiles": ${fileEntries.length}}\n\n`))
+            
+            const buffer = Buffer.from(await file.arrayBuffer())
+            const text = await extractTextFromPDF(buffer)
+            documentTexts.push(text)
+            documentNames.push(file.name.replace('.pdf', ''))
+            
+            console.log(`Extracted ${text.length} characters from ${file.name}`)
+            
+            // Small delay to prevent timeout detection
+            await new Promise(resolve => setTimeout(resolve, 100))
+          }
+
+          controller.enqueue(encoder.encode('data: {"status": "processing", "progress": 30, "message": "Starting entity extraction..."}\n\n'))
+
+          // Process documents with streaming progress callback
+          const graphData = await processDocumentsToGraphWithProgress(
+            documentTexts,
+            selectedEntities,
+            selectedRelationships,
+            documentNames,
+            (progress: number, message: string, details?: ProcessingDetails) => {
+              const totalProgress = Math.min(30 + Math.round(progress * 0.7), 100) // 70% for processing
+              controller.enqueue(encoder.encode(`data: {"status": "processing", "progress": ${totalProgress}, "message": "${message}", "details": ${JSON.stringify(details || {})}}\n\n`))
+            }
+          )
+
+          // Send completion
+          controller.enqueue(encoder.encode(`data: {"status": "complete", "progress": 100, "message": "Processing complete!", "data": ${JSON.stringify(graphData)}}\n\n`))
+          controller.close()
+
+        } catch (error) {
+          console.error('Streaming processing error:', error)
+          controller.enqueue(encoder.encode(`data: {"status": "error", "error": "${error instanceof Error ? error.message : 'Unknown error occurred'}"}\n\n`))
+          controller.close()
+        }
+      }
+    }),
+    {
+      headers: {
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache',
+        'Connection': 'keep-alive',
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Headers': 'Cache-Control'
+      }
+    }
+  )
+}
+
+// Enhanced version of processDocumentsToGraph with progress callbacks
+async function processDocumentsToGraphWithProgress(
+  documentTexts: string[],
+  allowedEntities: string[],
+  allowedRelationships: string[],
+  documentNames?: string[],
+  progressCallback?: (progress: number, message: string, details?: ProcessingDetails) => void
+) {
+  const { processDocumentsToGraph } = await import('@/lib/actions/graph-processor')
+  
+  // We'll need to modify the graph processor to accept progress callbacks
+  // For now, just call the original function with periodic updates
+  progressCallback?.(0, "Starting document analysis...")
+  
+  const result = await processDocumentsToGraph(
+    documentTexts,
+    allowedEntities,
+    allowedRelationships,
+    documentNames
+  )
+  
+  progressCallback?.(100, "Document processing complete")
+  return result
 }
