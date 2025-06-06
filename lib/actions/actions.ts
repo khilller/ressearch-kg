@@ -1,8 +1,5 @@
 'use server'
 
-import { getAISuggestions } from '@/lib/actions/ai-sugesstions'
-import { processDocumentsToGraph } from '@/lib/actions/graph-processor'
-import { extractTextFromPDF } from '@/lib/actions/pdf-extractor'
 import type { KnowledgeGraphSuggestionsType, ProcessingResult, ProcessingDetails } from '@/lib/types/types'
 
 export async function getSuggestionsAction(
@@ -11,7 +8,8 @@ export async function getSuggestionsAction(
   _files: FormData
 ): Promise<KnowledgeGraphSuggestionsType> {
   try {
-    // Only use the research focus prompt, not the document content
+    // Lazy load the AI suggestions module
+    const { getAISuggestions } = await import('@/lib/actions/ai-sugesstions')
     const suggestions = await getAISuggestions(researchFocus)
     return suggestions
   } catch (error) {
@@ -31,6 +29,15 @@ export async function processDocumentsAction(
     if (fileEntries.length === 0) {
       throw new Error('No files provided')
     }
+
+    // Lazy load heavy modules only when needed
+    const [
+      { extractTextFromPDF },
+      { processDocumentsToGraph }
+    ] = await Promise.all([
+      import('@/lib/actions/pdf-extractor'),
+      import('@/lib/actions/graph-processor')
+    ])
 
     // Extract text from all PDFs with progress tracking
     const documentTexts: string[] = []
@@ -89,8 +96,13 @@ export async function processDocumentsStreamAction(
             return
           }
 
-          // Send initial status
+          // Send initial status immediately
           controller.enqueue(encoder.encode('data: {"status": "starting", "progress": 0, "message": "Initializing processing..."}\n\n'))
+
+          // Lazy load heavy modules
+          controller.enqueue(encoder.encode('data: {"status": "loading", "progress": 5, "message": "Loading processing modules..."}\n\n'))
+          
+          const { extractTextFromPDF } = await import('@/lib/actions/pdf-extractor')
 
           // Extract text from all PDFs with progress updates
           const documentTexts: string[] = []
@@ -98,7 +110,7 @@ export async function processDocumentsStreamAction(
           
           for (let i = 0; i < fileEntries.length; i++) {
             const file = fileEntries[i]
-            const progress = Math.round((i / fileEntries.length) * 30) // 30% for PDF extraction
+            const progress = Math.round(10 + (i / fileEntries.length) * 25) // 10-35% for PDF extraction
             
             controller.enqueue(encoder.encode(`data: {"status": "extracting", "progress": ${progress}, "message": "Extracting text from ${file.name}...", "currentFile": "${file.name}", "fileIndex": ${i + 1}, "totalFiles": ${fileEntries.length}}\n\n`))
             
@@ -110,10 +122,10 @@ export async function processDocumentsStreamAction(
             console.log(`Extracted ${text.length} characters from ${file.name}`)
             
             // Small delay to prevent timeout detection
-            await new Promise(resolve => setTimeout(resolve, 100))
+            await new Promise(resolve => setTimeout(resolve, 50))
           }
 
-          controller.enqueue(encoder.encode('data: {"status": "processing", "progress": 30, "message": "Starting entity extraction..."}\n\n'))
+          controller.enqueue(encoder.encode('data: {"status": "processing", "progress": 35, "message": "Starting entity extraction..."}\n\n'))
 
           // Process documents with streaming progress callback
           const graphData = await processDocumentsToGraphWithProgress(
@@ -122,7 +134,7 @@ export async function processDocumentsStreamAction(
             selectedRelationships,
             documentNames,
             (progress: number, message: string, details?: ProcessingDetails) => {
-              const totalProgress = Math.min(30 + Math.round(progress * 0.7), 100) // 70% for processing
+              const totalProgress = Math.min(35 + Math.round(progress * 0.65), 100) // 65% for processing
               controller.enqueue(encoder.encode(`data: {"status": "processing", "progress": ${totalProgress}, "message": "${message}", "details": ${JSON.stringify(details || {})}}\n\n`))
             }
           )
@@ -158,10 +170,9 @@ async function processDocumentsToGraphWithProgress(
   documentNames?: string[],
   progressCallback?: (progress: number, message: string, details?: ProcessingDetails) => void
 ) {
+  // Lazy load the graph processor
   const { processDocumentsToGraph } = await import('@/lib/actions/graph-processor')
   
-  // We'll need to modify the graph processor to accept progress callbacks
-  // For now, just call the original function with periodic updates
   progressCallback?.(0, "Starting document analysis...")
   
   const result = await processDocumentsToGraph(

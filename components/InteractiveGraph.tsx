@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useCallback } from 'react';
+import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { ZoomIn, ZoomOut, RotateCcw } from 'lucide-react';
 
 interface GraphNode {
@@ -29,14 +29,14 @@ interface InteractiveGraphProps {
 }
 
 const InteractiveGraph: React.FC<InteractiveGraphProps> = ({ data }) => {
-  // Initialize positioned nodes
-  const initializeNodes = useCallback((): PositionedNode[] => {
+  // Memoize initial node positions to prevent recalculation
+  const initialNodes = useMemo((): PositionedNode[] => {
     const centerX = 400;
     const centerY = 200;
     const radius = 150;
     
     return data.nodes.map((node, index) => {
-      const angle = (index / data.nodes.length) * 2 * Math.PI;
+      const angle = (index / Math.max(data.nodes.length, 1)) * 2 * Math.PI;
       return {
         ...node,
         x: centerX + Math.cos(angle) * radius,
@@ -45,7 +45,7 @@ const InteractiveGraph: React.FC<InteractiveGraphProps> = ({ data }) => {
     });
   }, [data.nodes]);
 
-  const [nodes, setNodes] = useState<PositionedNode[]>(initializeNodes);
+  const [nodes, setNodes] = useState<PositionedNode[]>(initialNodes);
   const [dragging, setDragging] = useState<string | null>(null);
   const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
   const [selectedNode, setSelectedNode] = useState<string | null>(null);
@@ -55,33 +55,38 @@ const InteractiveGraph: React.FC<InteractiveGraphProps> = ({ data }) => {
   const [panStart, setPanStart] = useState({ x: 0, y: 0 });
   const svgRef = useRef<SVGSVGElement>(null);
 
-  // Update nodes when data changes
+  // Update nodes when data changes - use effect to prevent blocking
   useEffect(() => {
-    setNodes(initializeNodes());
-    setSelectedNode(null);
-    setZoom(1);
-    setPanOffset({ x: 0, y: 0 });
-  }, [data, initializeNodes]);
+    // Use setTimeout to prevent blocking the main thread
+    const timeoutId = setTimeout(() => {
+      setNodes(initialNodes);
+      setSelectedNode(null);
+      setZoom(1);
+      setPanOffset({ x: 0, y: 0 });
+    }, 0);
+
+    return () => clearTimeout(timeoutId);
+  }, [initialNodes]);
 
   // Simple colors: blue for entities, green for relationships
-  const getNodeColor = () => '#3b82f6'; // bg-blue-500
+  const getNodeColor = useCallback(() => '#3b82f6', []); // bg-blue-500
 
-  // Zoom controls
-  const zoomIn = () => {
+  // Zoom controls - memoized to prevent recreation
+  const zoomIn = useCallback(() => {
     setZoom(prev => Math.min(prev * 1.2, 3)); // Max zoom 3x
-  };
+  }, []);
 
-  const zoomOut = () => {
+  const zoomOut = useCallback(() => {
     setZoom(prev => Math.max(prev / 1.2, 0.3)); // Min zoom 0.3x
-  };
+  }, []);
 
-  const resetZoom = () => {
+  const resetZoom = useCallback(() => {
     setZoom(1);
     setPanOffset({ x: 0, y: 0 });
-  };
+  }, []);
 
-  // Mouse event handlers
-  const handleMouseDown = (e: React.MouseEvent, node: PositionedNode) => {
+  // Optimized event handlers
+  const handleMouseDown = useCallback((e: React.MouseEvent, node: PositionedNode) => {
     e.preventDefault();
     e.stopPropagation();
     if (!svgRef.current) return;
@@ -92,9 +97,9 @@ const InteractiveGraph: React.FC<InteractiveGraphProps> = ({ data }) => {
       x: (e.clientX - rect.left) / zoom - panOffset.x - node.x,
       y: (e.clientY - rect.top) / zoom - panOffset.y - node.y
     });
-  };
+  }, [zoom, panOffset]);
 
-  const handleMouseMove = (e: React.MouseEvent) => {
+  const handleMouseMove = useCallback((e: React.MouseEvent) => {
     if (!svgRef.current) return;
     
     const rect = svgRef.current.getBoundingClientRect();
@@ -127,56 +132,52 @@ const InteractiveGraph: React.FC<InteractiveGraphProps> = ({ data }) => {
       
       setPanStart({ x: e.clientX, y: e.clientY });
     }
-  };
+  }, [dragging, isPanning, zoom, panOffset, dragOffset, panStart]);
 
-  const handleMouseUp = () => {
+  const handleMouseUp = useCallback(() => {
     setDragging(null);
     setIsPanning(false);
-  };
+  }, []);
 
-  const handleBackgroundMouseDown = (e: React.MouseEvent) => {
+  const handleBackgroundMouseDown = useCallback((e: React.MouseEvent) => {
     if (e.target === svgRef.current || (e.target as Element).tagName === 'rect') {
-      //const rect = svgRef.current!.getBoundingClientRect();
       setIsPanning(true);
       setPanStart({ x: e.clientX, y: e.clientY });
       e.preventDefault();
     }
-  };
+  }, []);
 
-  const handleNodeClick = (e: React.MouseEvent, nodeId: string) => {
+  const handleNodeClick = useCallback((e: React.MouseEvent, nodeId: string) => {
     e.stopPropagation();
     setSelectedNode(selectedNode === nodeId ? null : nodeId);
-  };
+  }, [selectedNode]);
 
-  const handleBackgroundClick = () => {
+  const handleBackgroundClick = useCallback(() => {
     setSelectedNode(null);
-  };
+  }, []);
 
-  // Check if relationship involves selected node
-  const isRelationshipHighlighted = (rel: GraphRelationship) => {
+  // Memoize expensive calculations
+  const isRelationshipHighlighted = useCallback((rel: GraphRelationship) => {
     return selectedNode === rel.source || selectedNode === rel.target;
-  };
+  }, [selectedNode]);
 
-  // Check if node is connected to selected node
-  const isNodeConnected = (nodeId: string) => {
+  const isNodeConnected = useCallback((nodeId: string) => {
     if (!selectedNode) return false;
     return data.relationships.some(rel => 
       (rel.source === selectedNode && rel.target === nodeId) ||
       (rel.target === selectedNode && rel.source === nodeId)
     );
-  };
+  }, [selectedNode, data.relationships]);
 
-  // Get connection path
-  const getConnectionPath = (sourceId: string, targetId: string) => {
+  const getConnectionPath = useCallback((sourceId: string, targetId: string) => {
     const source = nodes.find(n => n.id === sourceId);
     const target = nodes.find(n => n.id === targetId);
     
     if (!source || !target) return '';
     return `M ${source.x} ${source.y} L ${target.x} ${target.y}`;
-  };
+  }, [nodes]);
 
-  // Get relationship midpoint for label
-  const getRelationshipMidpoint = (sourceId: string, targetId: string) => {
+  const getRelationshipMidpoint = useCallback((sourceId: string, targetId: string) => {
     const source = nodes.find(n => n.id === sourceId);
     const target = nodes.find(n => n.id === targetId);
     
@@ -185,7 +186,16 @@ const InteractiveGraph: React.FC<InteractiveGraphProps> = ({ data }) => {
       x: (source.x + target.x) / 2,
       y: (source.y + target.y) / 2
     };
-  };
+  }, [nodes]);
+
+  // Early return if no data to prevent rendering issues
+  if (!data || !data.nodes || data.nodes.length === 0) {
+    return (
+      <div className="w-full h-full p-8 text-center">
+        <p className="text-gray-500">No data to display</p>
+      </div>
+    );
+  }
 
   return (
     <div className="w-full h-full">
