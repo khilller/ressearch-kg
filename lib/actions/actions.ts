@@ -32,10 +32,10 @@ export async function processDocumentsAction(
 
     // Lazy load heavy modules only when needed
     const [
-      { extractTextFromPDF },
+      { extractTextFromPDF }, // Now using unpdf instead of pdf-parse
       { processDocumentsToGraph }
     ] = await Promise.all([
-      import('@/lib/actions/pdf-extractor'),
+      import('@/lib/actions/pdf-extractor'), // Updated import
       import('@/lib/actions/graph-processor')
     ])
 
@@ -48,6 +48,8 @@ export async function processDocumentsAction(
       console.log(`Extracting text from ${file.name} (${i + 1}/${fileEntries.length})`)
       
       const buffer = Buffer.from(await file.arrayBuffer())
+      
+      // Use new unpdf-based extractor
       const text = await extractTextFromPDF(buffer)
       documentTexts.push(text)
       documentNames.push(file.name.replace('.pdf', ''))
@@ -76,7 +78,7 @@ export async function processDocumentsAction(
   }
 }
 
-// NEW: Streaming version with progress updates
+// Enhanced streaming version with better error handling
 export async function processDocumentsStreamAction(
   files: FormData,
   selectedEntities: string[],
@@ -99,8 +101,8 @@ export async function processDocumentsStreamAction(
           // Send initial status immediately
           controller.enqueue(encoder.encode('data: {"status": "starting", "progress": 0, "message": "Initializing processing..."}\n\n'))
 
-          // Lazy load heavy modules
-          controller.enqueue(encoder.encode('data: {"status": "loading", "progress": 5, "message": "Loading processing modules..."}\n\n'))
+          // Lazy load the new PDF extractor
+          controller.enqueue(encoder.encode('data: {"status": "loading", "progress": 5, "message": "Loading unpdf PDF extractor..."}\n\n'))
           
           const { extractTextFromPDF } = await import('@/lib/actions/pdf-extractor')
 
@@ -112,20 +114,28 @@ export async function processDocumentsStreamAction(
             const file = fileEntries[i]
             const progress = Math.round(10 + (i / fileEntries.length) * 25) // 10-35% for PDF extraction
             
-            controller.enqueue(encoder.encode(`data: {"status": "extracting", "progress": ${progress}, "message": "Extracting text from ${file.name}...", "currentFile": "${file.name}", "fileIndex": ${i + 1}, "totalFiles": ${fileEntries.length}}\n\n`))
+            controller.enqueue(encoder.encode(`data: {"status": "extracting", "progress": ${progress}, "message": "Extracting text from ${file.name} using unpdf...", "currentFile": "${file.name}", "fileIndex": ${i + 1}, "totalFiles": ${fileEntries.length}}\n\n`))
             
-            const buffer = Buffer.from(await file.arrayBuffer())
-            const text = await extractTextFromPDF(buffer)
-            documentTexts.push(text)
-            documentNames.push(file.name.replace('.pdf', ''))
-            
-            console.log(`Extracted ${text.length} characters from ${file.name}`)
-            
-            // Small delay to prevent timeout detection
-            await new Promise(resolve => setTimeout(resolve, 50))
+            try {
+              const buffer = Buffer.from(await file.arrayBuffer())
+              const text = await extractTextFromPDF(buffer)
+              documentTexts.push(text)
+              documentNames.push(file.name.replace('.pdf', ''))
+              
+              console.log(`Extracted ${text.length} characters from ${file.name}`)
+              
+              // Small delay to prevent timeout detection
+              await new Promise(resolve => setTimeout(resolve, 50))
+              
+            } catch (extractionError) {
+              console.error(`Failed to extract ${file.name}:`, extractionError)
+              controller.enqueue(encoder.encode(`data: {"status": "error", "error": "Failed to extract text from ${file.name}: ${extractionError instanceof Error ? extractionError.message : 'Unknown error'}"}\n\n`))
+              controller.close()
+              return
+            }
           }
 
-          controller.enqueue(encoder.encode('data: {"status": "processing", "progress": 35, "message": "Starting entity extraction..."}\n\n'))
+          controller.enqueue(encoder.encode('data: {"status": "processing", "progress": 35, "message": "Starting entity extraction with improved PDF content..."}\n\n'))
 
           // Process documents with streaming progress callback
           const graphData = await processDocumentsToGraphWithProgress(
@@ -140,7 +150,7 @@ export async function processDocumentsStreamAction(
           )
 
           // Send completion
-          controller.enqueue(encoder.encode(`data: {"status": "complete", "progress": 100, "message": "Processing complete!", "data": ${JSON.stringify(graphData)}}\n\n`))
+          controller.enqueue(encoder.encode(`data: {"status": "complete", "progress": 100, "message": "Processing complete with unpdf!", "data": ${JSON.stringify(graphData)}}\n\n`))
           controller.close()
 
         } catch (error) {
