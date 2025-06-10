@@ -12,12 +12,8 @@
 		"cf-typegen": "wrangler types --env-interface CloudflareEnv ./cloudflare-env.d.ts"
 	},
 	"dependencies": {
-		"@langchain/core": "^0.3.57",
-		"@langchain/openai": "^0.5.11",
 		"@opennextjs/cloudflare": "^1.1.0",
-		"langchain": "^0.3.27",
 		"lucide-react": "^0.513.0",
-		"neo4j-driver": "^5.28.1",
 		"next": "15.3.3",
 		"openai": "^5.1.0",
 		"react": "^19.0.0",
@@ -27,6 +23,7 @@
 	},
 	"devDependencies": {
 		"@eslint/eslintrc": "^3",
+		"@next/bundle-analyzer": "^15.3.3",
 		"@tailwindcss/postcss": "^4",
 		"@types/node": "^20.17.57",
 		"@types/react": "^19",
