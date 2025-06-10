@@ -129,14 +129,18 @@ export function KnowledgeGraphBuilder() {
       const formData = new FormData()
       uploadedFiles.forEach(file => formData.append('files', file))
 
+      // Base64 encode the arrays to ensure ASCII-safe headers
+      const entitiesB64 = btoa(JSON.stringify(Array.from(selectedEntities)))
+      const relationshipsB64 = btoa(JSON.stringify(Array.from(selectedRelationships)))
+
       // Use streaming version for large files
       const response = await fetch('/api/process-documents-stream', {
-        method: 'POST',
-        body: formData,
-        headers: {
-          'X-Selected-Entities': JSON.stringify(Array.from(selectedEntities)),
-          'X-Selected-Relationships': JSON.stringify(Array.from(selectedRelationships))
-        }
+      method: 'POST',
+      body: formData,
+      headers: {
+        'X-Selected-Entities-B64': entitiesB64,
+        'X-Selected-Relationships-B64': relationshipsB64
+      }
       })
 
       if (!response.ok) {
