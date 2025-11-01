@@ -386,6 +386,18 @@ export async function processDocumentsToGraph(
   // Consolidate the final graph
   progressCallback?.(90, "Consolidating final graph...")
   const finalGraph = consolidateGraph(allNodes, allRelationships, entityMapping)
+
+  console.log("\nSaving to Neo4j...")
+  progressCallback?.(95, "Saving to Neo4j...")
+  
+  try {
+    const { saveGraphToNeo4j } = await import('@/lib/neo4j/operations')
+    await saveGraphToNeo4j(finalGraph)
+  } catch (error) {
+    console.warn("Failed to save to Neo4j:", error)
+    // Don't fail the whole process if Neo4j save fails
+  }
+  
   
   console.log(`\nFinal graph: ${finalGraph.nodes.length} entities, ${finalGraph.relationships.length} relationships`)
   progressCallback?.(100, `Processing complete! Found ${finalGraph.nodes.length} entities and ${finalGraph.relationships.length} relationships`)
