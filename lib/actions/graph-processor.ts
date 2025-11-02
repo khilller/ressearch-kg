@@ -401,7 +401,27 @@ export const processDocumentsToGraph = traceable(
   
   // Consolidate the final graph
   progressCallback?.(90, "Consolidating final graph...")
-  const finalGraph = consolidateGraph(allNodes, allRelationships, entityMapping)
+  let finalGraph = consolidateGraph(allNodes, allRelationships, entityMapping)
+
+  // Agent 4: Graph Optimization
+  progressCallback?.(92, "Starting graph optimization...")
+  try {
+    const { graph: optimizedGraph, report } = await optimizeGraphWithLLM(
+      finalGraph,
+      (progress, message) => {
+        progressCallback?.(92 + progress * 0.05, message)
+      }
+    )
+    
+    console.log("Optimization report:", report)
+    console.log(`Removed ${report.removedNodes} nodes, ${report.removedRelationships} relationships`)
+    console.log(`Quality score: ${report.qualityAssessment.overallScore}`)
+    
+    finalGraph = optimizedGraph
+  } catch (error) {
+    console.warn("Agent 4 optimization failed:", error)
+    // Continue with unoptimized graph
+  }
 
   console.log("\nSaving to Neo4j...")
   progressCallback?.(95, "Saving to Neo4j...")
@@ -429,3 +449,138 @@ export const processDocumentsToGraph = traceable(
     deployment: "cloudflare-workers"
   }
 })
+
+
+// Define the schema for optimization results
+const OptimizationResult = z.object({
+  removedRelationships: z.array(z.object({
+    source: z.string(),
+    target: z.string(),
+    type: z.string(),
+    reason: z.string(),
+    confidence: z.number()
+  })).describe("Relationships that should be removed with confidence scores"),
+  
+  removedNodes: z.array(z.object({
+    id: z.string(),
+    type: z.string(),
+    reason: z.string()
+  })).describe("Isolated nodes that should be removed"),
+  
+  qualityAssessment: z.object({
+    overallScore: z.number().describe("Quality score 0-1"),
+    strengths: z.array(z.string()).describe("What the graph does well"),
+    improvements: z.array(z.string()).describe("Suggested improvements"),
+    reasoning: z.string().describe("Overall assessment")
+  })
+})
+
+// Agent 4: Graph Optimizer
+const optimizeGraphWithLLM = traceable(
+  async function(
+    graph: GraphData,
+    progressCallback?: (progress: number, message: string) => void
+  ): Promise<{
+    graph: GraphData,
+    report: z.infer<typeof OptimizationResult>
+  }> {
+    
+    progressCallback?.(0, "Agent 4: Analyzing graph structure...")
+    
+    // Sample graph for analysis (don't send 1000s of nodes to LLM)
+    const sampleNodes = graph.nodes.slice(0, 50)
+    const sampleRels = graph.relationships.slice(0, 100)
+    
+    const response = await openai.chat.completions.parse({
+      model: "gpt-4o-2024-08-06",
+      messages: [
+        {
+          role: "system",
+          content: `You are a knowledge graph quality optimization agent.
+          
+          Your goals:
+          1. Identify low-quality relationships (weak semantic connections)
+          2. Identify isolated nodes (no connections, likely extraction errors)
+          3. Assess overall graph quality
+          4. Be CONSERVATIVE - only flag obvious issues
+          
+          Provide detailed reasoning for all decisions with confidence scores.`
+        },
+        {
+          role: "user",
+          content: `Analyze this knowledge graph for quality issues:
+          
+          Total nodes: ${graph.nodes.length}
+          Total relationships: ${graph.relationships.length}
+          
+          Sample nodes: ${JSON.stringify(sampleNodes, null, 2)}
+          Sample relationships: ${JSON.stringify(sampleRels, null, 2)}
+          
+          Identify issues and provide recommendations.`
+        }
+      ],
+      response_format: zodResponseFormat(OptimizationResult, "optimization")
+    })
+
+    const optimization = response.choices[0].message.parsed!
+    
+    progressCallback?.(50, "Agent 4: Applying optimizations...")
+    
+    // Apply optimizations
+    let optimizedGraph = { ...graph }
+    
+    // Remove high-confidence bad relationships
+    const removedRels: GraphRelationship[] = []
+    optimizedGraph.relationships = optimizedGraph.relationships.filter(rel => {
+      const shouldRemove = optimization.removedRelationships.some(
+        r => r.source === rel.source && 
+             r.target === rel.target && 
+             r.type === rel.type &&
+             r.confidence > 0.75  // Only remove if confident
+      )
+      if (shouldRemove) {
+        removedRels.push(rel)
+      }
+      return !shouldRemove
+    })
+    
+    // Remove isolated nodes (except document nodes)
+    const removedNodes: GraphNode[] = []
+    optimizedGraph.nodes = optimizedGraph.nodes.filter(node => {
+      if (node.type === "DOCUMENT") return true  // Keep all document nodes
+      
+      const hasConnection = optimizedGraph.relationships.some(
+        rel => rel.source === node.id || rel.target === node.id
+      )
+      
+      if (!hasConnection) {
+        removedNodes.push(node)
+      }
+      return hasConnection
+    })
+    
+    progressCallback?.(100, `Agent 4: Optimization complete (quality: ${optimization.qualityAssessment.overallScore.toFixed(2)})`)
+    
+    // Add metadata about what was changed
+    const report = {
+      ...optimization,
+      actualChanges: {
+        relationshipsRemoved: removedRels.length,
+        nodesRemoved: removedNodes.length,
+        removedRelationships: removedRels,
+        removedNodes: removedNodes
+      }
+    }
+    
+    return {
+      graph: optimizedGraph,
+      report
+    }
+  },
+  {
+    name: "Agent-4-Graph-Optimizer",
+    run_type: "llm",
+    tags: ["agent", "optimizer", "quality-assurance"],
+    metadata: { agent_number: 4 }
+  }
+)

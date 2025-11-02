@@ -2,6 +2,7 @@
 
 import { NextRequest } from 'next/server'
 import { processDocumentsStreamAction } from '@/lib/actions/actions'
+import { decodeArrayFromHeader } from '@/lib/utils/encoding'
 
 export async function POST(request: NextRequest) {
   try {
@@ -14,13 +15,13 @@ export async function POST(request: NextRequest) {
       return new Response('Missing entity or relationship headers', { status: 400 })
     }
 
-    // Decode base64 and parse JSON
+    // Unicode-safe decode using utility functions
     let selectedEntities: string[]
     let selectedRelationships: string[]
     
     try {
-      selectedEntities = JSON.parse(atob(selectedEntitiesHeaderB64))
-      selectedRelationships = JSON.parse(atob(selectedRelationshipsHeaderB64))
+      selectedEntities = decodeArrayFromHeader<string>(selectedEntitiesHeaderB64)
+      selectedRelationships = decodeArrayFromHeader<string>(selectedRelationshipsHeaderB64)
     } catch (decodeError) {
       console.error('Failed to decode headers:', decodeError)
       return new Response('Invalid header encoding', { status: 400 })

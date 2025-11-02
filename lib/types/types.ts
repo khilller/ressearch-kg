@@ -24,6 +24,14 @@ export interface GraphRelationship {
 export interface GraphData {
   nodes: GraphNode[]
   relationships: GraphRelationship[]
+  optimizationReport?: {
+    qualityScore: number
+    relationshipsRemoved: number
+    nodesRemoved: number
+    strengths: string[]
+    improvements: string[]
+    reasoning: string
+  }
 }
 
 export interface ProcessingResult {

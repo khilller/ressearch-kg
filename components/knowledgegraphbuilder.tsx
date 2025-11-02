@@ -4,6 +4,7 @@ import React, { useState } from 'react'
 import { Upload, X, Zap, FileText, Settings, Play } from 'lucide-react'
 import { getSuggestionsAction } from '@/lib/actions/actions'
 import type { GraphData, ProcessingProgress } from '@/lib/types/types'
+import { encodeArrayForHeader } from '@/lib/utils/encoding'
 import InteractiveGraph from './InteractiveGraph'
 
 export function KnowledgeGraphBuilder() {
@@ -129,9 +130,9 @@ export function KnowledgeGraphBuilder() {
       const formData = new FormData()
       uploadedFiles.forEach(file => formData.append('files', file))
 
-      // Base64 encode the arrays to ensure ASCII-safe headers
-      const entitiesB64 = btoa(JSON.stringify(Array.from(selectedEntities)))
-      const relationshipsB64 = btoa(JSON.stringify(Array.from(selectedRelationships)))
+      // Unicode-safe Base64 encode using utility functions
+      const entitiesB64 = encodeArrayForHeader(Array.from(selectedEntities))
+      const relationshipsB64 = encodeArrayForHeader(Array.from(selectedRelationships))
 
       // Use streaming version for large files
       const response = await fetch('/api/process-documents-stream', {
@@ -672,6 +673,48 @@ export function KnowledgeGraphBuilder() {
                 ))}
               </div>
             </details>
+
+            {/* Debug: Show optimization report */}
+            {graphData?.optimizationReport && (
+              <div className="mt-4 bg-blue-50 border border-blue-200 rounded-lg p-4">
+                <h4 className="font-medium text-blue-900 mb-2">
+                  Agent 4: Graph Optimization Report
+                </h4>
+                <div className="text-sm text-blue-800 space-y-2">
+                  <div>
+                    <strong>Quality Score:</strong> {(graphData.optimizationReport.qualityScore * 100).toFixed(0)}%
+                  </div>
+                  <div>
+                    <strong>Changes:</strong> Removed {graphData.optimizationReport.nodesRemoved} isolated nodes, 
+                    {graphData.optimizationReport.relationshipsRemoved} low-confidence relationships
+                  </div>
+                  <details>
+                    <summary className="cursor-pointer font-medium">View Analysis</summary>
+                    <div className="mt-2 space-y-2">
+                      <div>
+                        <strong>Strengths:</strong>
+                        <ul className="list-disc ml-5">
+                          {graphData.optimizationReport.strengths.map((s, i) => (
+                            <li key={i}>{s}</li>
+                          ))}
+                        </ul>
+                      </div>
+                      <div>
+                        <strong>Improvements:</strong>
+                        <ul className="list-disc ml-5">
+                          {graphData.optimizationReport.improvements.map((s, i) => (
+                            <li key={i}>{s}</li>
+                          ))}
+                        </ul>
+                      </div>
+                      <div>
+                        <strong>Reasoning:</strong> {graphData.optimizationReport.reasoning}
+                      </div>
+                    </div>
+                  </details>
+                </div>
+              </div>
+            )}
 
             {/* Debug: Show graph statistics */}
             <div className="bg-white rounded-lg shadow-sm border p-4">
