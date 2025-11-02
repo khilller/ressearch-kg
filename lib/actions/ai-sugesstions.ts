@@ -1,12 +1,15 @@
 import OpenAI from "openai"
 import { zodResponseFormat } from "openai/helpers/zod"
 import { KnowledgeGraphSuggestions, type KnowledgeGraphSuggestionsType } from "@/lib/types/types"
+import { wrapOpenAI } from "langsmith/wrappers"
+import { traceable } from "langsmith/traceable"
 
-const openai = new OpenAI({
+const openai = wrapOpenAI(new OpenAI({
   apiKey: process.env.OPENAI_API_KEY
-})
+}))
 
-export async function getAISuggestions(
+export const getAISuggestions = traceable(
+  async function(
   researchFocus: string
 ): Promise<KnowledgeGraphSuggestionsType> {
   const response = await openai.chat.completions.parse({
@@ -39,4 +42,9 @@ Based on this research focus, what entity types and relationship types would be 
   }
 
   return suggestions
-}
+},{
+  name: "Agent-1-Research-Analyzer",
+  run_type: "llm",
+  tags: ["agent", "analyzer"],
+  metadata: { agent_number: 1 }
+})

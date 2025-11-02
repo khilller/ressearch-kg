@@ -2,10 +2,12 @@ import OpenAI from "openai"
 import { zodResponseFormat } from "openai/helpers/zod"
 import { z } from "zod"
 import type { GraphData, GraphNode, GraphRelationship, ProcessingDetails } from "@/lib/types/types"
+import { wrapOpenAI } from "langsmith/wrappers"
+import { traceable } from "langsmith/traceable"
 
-const openai = new OpenAI({
+const openai = wrapOpenAI(new OpenAI({
   apiKey: process.env.OPENAI_API_KEY
-})
+}))
 
 // Schema for extracting entities and relationships from text
 const KnowledgeGraphExtraction = z.object({
@@ -59,12 +61,13 @@ function chunkText(text: string, maxChars: number = 8000): string[] {
 }
 
 // Extract entities and relationships from a single text chunk using OpenAI
-async function extractFromChunk(
-  text: string,
-  allowedEntities: string[],
-  allowedRelationships: string[]
-): Promise<{ nodes: GraphNode[], relationships: GraphRelationship[] }> {
-  try {
+const extractFromChunk = traceable(
+  async function(
+    text: string,
+    allowedEntities: string[],
+    allowedRelationships: string[]
+  ): Promise<{ nodes: GraphNode[], relationships: GraphRelationship[] }> {
+    try {
     const response = await openai.chat.completions.parse({
       model: "gpt-4o-2024-08-06",
       messages: [
@@ -115,10 +118,17 @@ async function extractFromChunk(
     console.error("Error extracting from chunk:", error)
     return { nodes: [], relationships: [] }
   }
-}
+},
+{
+  name: "Agent-2-Extract-chunk",
+  run_type: "llm",
+  tags: ["agent", "extractor"],
+  metadata: { agent_number: 2 }
+})
 
 // Use LLM to merge similar entities across batches
-async function mergeEntitiesWithLLM(
+const mergeEntitiesWithLLM = traceable(
+  async function(
   allNodes: GraphNode[],
   progressCallback?: (progress: number, message: string) => void
 ): Promise<Map<string, string>> {
@@ -200,7 +210,12 @@ async function mergeEntitiesWithLLM(
 
   progressCallback?.(100, "Entity merging complete")
   return entityMapping
-}
+},{
+  name: "Agent-3-Entity-Merger",
+  run_type: "llm",
+  tags: ["agent", "merger"],
+  metadata: { agent_number: 3 }
+})
 
 // Apply entity mapping and remove duplicate relationships
 function consolidateGraph(
@@ -253,7 +268,8 @@ function consolidateGraph(
 }
 
 // Main function with progress callbacks and document nodes
-export async function processDocumentsToGraph(
+export const processDocumentsToGraph = traceable(
+  async function(
   documentTexts: string[],
   allowedEntities: string[],
   allowedRelationships: string[],
@@ -403,4 +419,13 @@ export async function processDocumentsToGraph(
   progressCallback?.(100, `Processing complete! Found ${finalGraph.nodes.length} entities and ${finalGraph.relationships.length} relationships`)
   
   return finalGraph
-}
+},
+{
+  name: "Full-Pipeline-Multi-Agent",
+  run_type: "llm",
+  tags: ["pipeline", "multi-agent", "knowledge-graph"],
+  metadata: { 
+    version: "1.0.0",
+    deployment: "cloudflare-workers"
+  }
+})
